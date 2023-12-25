@@ -2,3 +2,10 @@ venv/
 __pycache__/
 dataset/
 test*
+test/*
+.vscode/
+*.pt
+result/*
+fig/
+model/
+env.sh

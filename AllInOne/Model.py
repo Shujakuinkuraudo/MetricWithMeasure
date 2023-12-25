@@ -7,8 +7,8 @@ class ImageFeatureExtraction(torch.nn.Module):
     def __init__(self, output_shape=1024):
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(3, 64, (3, 3), "same"),
-            nn.BatchNorm2d(1024),
+            nn.Conv2d(3, 64, (3, 3), padding="same"),
+            nn.LazyBatchNorm2d(),
             nn.ReLU(),
             nn.AdaptiveAvgPool2d((64, 64)),
         )
@@ -16,33 +16,39 @@ class ImageFeatureExtraction(torch.nn.Module):
 
     def forward(self, x: torch.Tensor):
         x = self.conv(x)
-        x = self.Linear(x.flatten())
+        x = self.Linear(x.view(x.size(0), -1))
         return x
 
 
 class TextFeatureExtraction(torch.nn.Module):
     def __init__(self, output_shape=1024):
         super().__init__()
-        self.embedding = nn.Embedding(10000, 256)
-        self.LSTM = nn.LSTM(256, 512, 2, batch_first=True)
+        self.embedding = nn.Embedding(100000, 256)
+        self.LSTM = nn.LSTM(256, 64, 2, batch_first=True)
         self.Linear = nn.LazyLinear(output_shape)
 
     def forward(self, x: torch.Tensor):
         x = self.embedding(x)
-        x = self.LSTM(x)
-        x = self.Linear(x.flatten())
+        (x, (hn, cn)) = self.LSTM(x)
+        x = self.Linear(x.reshape(x.size(0), -1))
         return x
 
 
 class AudioFeatureExtraction(torch.nn.Module):
     def __init__(self, output_shape=1024):
         super().__init__()
-
+        self.conv = nn.Sequential(
+            nn.Conv2d(3, 64, (3, 3), padding="same"),
+            nn.LazyBatchNorm2d(),
+            nn.ReLU(),
+            nn.AdaptiveAvgPool2d((64, 64)),
+        )
         self.Linear = nn.LazyLinear(output_shape)
 
     def forward(self, x: torch.Tensor):
         x = self.conv(x)
-        x = self.Linear(x.flatten())
+        x = self.Linear(x.view(x.size(0), -1))
+        x = nn.functional.normalize(x, dim=-1)
         return x
 
 
@@ -54,14 +60,21 @@ class AutoEncoder(nn.Module):
             nn.ReLU(),
             nn.LazyLinear(output_shape // 16),
             nn.ReLU(),
+            nn.LazyLinear(output_shape // 32),
+            nn.ReLU(),
         )
         self.decoder = nn.Sequential(
-            nn.LazyLinear(output_shape // 4), nn.ReLU(), nn.LazyLinear(output_shape)
+            nn.LazyLinear(output_shape // 16),
+            nn.ReLU(),
+            nn.LazyLinear(output_shape // 4),
+            nn.ReLU(),
+            nn.LazyLinear(output_shape),
         )
 
     def forward(self, x: torch.Tensor):
         x = self.encoder(x)
         x = self.decoder(x)
+        x = nn.functional.normalize(x, dim=-1)
         return x
 
 
