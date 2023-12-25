@@ -2,18 +2,25 @@ import torch
 import torch.nn as nn
 from torch.utils.data.dataloader import DataLoader
 from AllInOne.Loss import ContrastiveLoss
-from AllInOne.dataset import BirdClefDataset, ButterflyDataset, CoronavirusDataset, CIFAR100
+from AllInOne.dataset import (
+    BirdClefDataset,
+    ButterflyDataset,
+    CoronavirusDataset,
+    CIFAR100,
+)
 from AllInOne.Model import Model
 from tqdm import tqdm
 from sklearn.cluster import KMeans
 import numpy as np
 from sklearn.metrics import adjusted_mutual_info_score
 import datetime
+import wandb
 
 
 class Train:
     def __init__(self, time) -> None:
         self.time = time
+        self.run = self.get_wandb()
         self.create_folder()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.loss_contrastive = ContrastiveLoss().to(self.device)
@@ -40,9 +47,21 @@ class Train:
             ]
         )
         self.epochs = 1000
+    
+    def get_wandb(self):
+        run = wandb.init(
+        # Set the project where this run will be logged
+        project="deep-learning",
+        # Track hyperparameters and run metadata
+        save_code=True
+        )
+        run.log_code("AllInOne/")
+        return run
+
 
     def create_folder(self):
         import os
+
         if not os.path.exists(f"fig/{self.time}"):
             os.mkdir(f"result/{self.time}")
         os.mkdir(f"result/{self.time}/fig")
@@ -72,7 +91,7 @@ class Train:
         for x, y in loader:
             x, y = x.to(self.device), y.to(self.device)
             x, pred = self.model(x, type)
-            loss = (loss_ae := self.loss_ae(pred, x)) + (
+            loss = (loss_ae := 0.1*self.loss_ae(pred, x)) + (
                 loss_contrastive := self.loss_contrastive(pred.view(x.size(0), -1), y)
             )
             loss.backward()
@@ -90,28 +109,36 @@ class Train:
                 type, loader = self.get_loader(dataset_name)
                 loss_con, loss_ae = self.train_one_Loader(loader, type)
                 print(loss_con, loss_ae)
-                self.log(f"{epoch}\t dataset:{dataset_name}\t loss_con:{loss_con} \tloss_ae:{loss_ae} \t{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                self.log(
+                    f"{epoch}\t dataset:{dataset_name}\t loss_con:{loss_con} \tloss_ae:{loss_ae} \t{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                )
+                self.run.log({"epoch":epoch, "dataset":dataset_name, "loss_con":loss_con, "loss_ae":loss_ae})
 
                 if epoch % 10 == 0:
                     self.visualize(
-                        dataset_name, output=f"result/{self.time}/fig/{dataset_name}_{epoch}.png"
+                        dataset_name,
+                        output=f"result/{self.time}/fig/{dataset_name}_{epoch}.png",
                     )
             if epoch % 10 == 0:
                 self.save(epoch)
+            self.run.watch(self.model, log="all", log_freq=10)
 
-    def log(self,string):
-        with open(f"result/{self.time}/log.txt","a") as f:
-            f.write(string+"\n")
-    
+    def log(self, string):
+        with open(f"result/{self.time}/log.txt", "a") as f:
+            f.write(string + "\n")
+
     def train_one(self, dataset_name):
         for epoch in tqdm(range(self.epochs)):
             type, loader = self.get_loader(dataset_name)
             loss_con, loss_ae = self.train_one_Loader(loader, type)
-            self.log(f"{epoch}\t dataset:{dataset_name}\t loss_con:{loss_con} \tloss_ae:{loss_ae} \t{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            self.log(
+                f"{epoch}\t dataset:{dataset_name}\t loss_con:{loss_con} \tloss_ae:{loss_ae} \t{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+            )
 
             if epoch % 10 == 0:
                 self.visualize(
-                    dataset_name, output=f"result/{self.time}/fig/{dataset_name}_{epoch}.png"
+                    dataset_name,
+                    output=f"result/{self.time}/fig/{dataset_name}_{epoch}.png",
                 )
             if epoch % 10 == 0:
                 self.save(epoch)
@@ -121,6 +148,7 @@ class Train:
         labels = kmeans.fit_predict(samples)
         score = adjusted_mutual_info_score(ys, labels)
         self.log(f"cluster_score:{score}")
+        self.run.log({"cluster_score":{score}})
         print("cluster_score", score)
 
     def test(self, dataset_name):
@@ -156,3 +184,4 @@ class Train:
         plt.show()
         if output:
             plt.savefig(output)
+            self.run.log({"dataset_name":dataset_name,"fig":wandb.Image(plt)})

@@ -48,7 +48,6 @@ class AudioFeatureExtraction(torch.nn.Module):
     def forward(self, x: torch.Tensor):
         x = self.conv(x)
         x = self.Linear(x.view(x.size(0), -1))
-        x = nn.functional.normalize(x, dim=-1)
         return x
 
 
@@ -74,7 +73,6 @@ class AutoEncoder(nn.Module):
     def forward(self, x: torch.Tensor):
         x = self.encoder(x)
         x = self.decoder(x)
-        x = nn.functional.normalize(x, dim=-1)
         return x
 
 
