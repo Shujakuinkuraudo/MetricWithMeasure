@@ -24,8 +24,9 @@ class MulDataset:
 class CoronavirusDataset(Dataset, MulDataset):
     def __init__(self, train=True, load=True):
         super().__init__()
-        self.tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
-        self.tokenizer.model_max_length = 1000
+        if not load:
+            self.tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
+            self.tokenizer.model_max_length = 1000
 
         if train:
             self.df = self.preprocess("dataset/Coronavirus tweets/Corona_NLP_train.csv")
@@ -69,6 +70,7 @@ class CoronavirusDataset(Dataset, MulDataset):
 
     def __len__(self):
         return len(self.labels)
+
 
 class BirdClefDataset(Dataset, MulDataset):
     def __init__(self, train=True, load=True):
@@ -143,6 +145,7 @@ class BirdClefDataset(Dataset, MulDataset):
     def __getitem__(self, idx):
         return self.data[idx]
 
+
 class ButterflyDataset(Dataset, MulDataset):
     def __init__(self, train=True, load=True):
         df = self.preprocess()
@@ -177,7 +180,7 @@ class ButterflyDataset(Dataset, MulDataset):
         df["label"] = encoder.fit_transform(df["label"])
 
         df["train"] = 1
-        df.loc[[i for i in range(0, len(df), 2)], "train"] = 0
+        df.loc[[i for i in range(0, len(df), 5)], "train"] = 0
         return df
 
     def to_memory(self, idx):
@@ -197,6 +200,7 @@ class ButterflyDataset(Dataset, MulDataset):
     def __len__(self):
         return len(self.image_paths)
 
+
 class CIFAR100(Dataset):
     def __init__(self, train=True, load=True):
         self.transform = transforms.Compose(
@@ -207,10 +211,13 @@ class CIFAR100(Dataset):
             ]
         )
         if train:
-            self.cifar100 = datasets.CIFAR100("dataset/cifar100", train=True, download=True, transform=self.transform)
+            self.cifar100 = datasets.CIFAR100(
+                "dataset/cifar100", train=True, download=True, transform=self.transform
+            )
         else:
-            self.cifar100 = datasets.CIFAR100("dataset/cifar100", train=False, download=True, transform=self.transform)
-
+            self.cifar100 = datasets.CIFAR100(
+                "dataset/cifar100", train=False, download=True, transform=self.transform
+            )
 
         if load:
             print("load!")
@@ -223,14 +230,15 @@ class CIFAR100(Dataset):
             torch.save(self.data, f"dataset/cifar100/{train}.pt")
 
     def to_memory(self, idx):
-        image, label = self.cifar100[idx*10]
+        image, label = self.cifar100[idx * 10]
         return image, label
 
     def __getitem__(self, idx):
         return self.data[idx]
 
     def __len__(self):
-        return len(self.cifar100)//10
-        
+        return len(self.cifar100) // 10
+
+
 if __name__ == "__main__":
     dataset = BirdClefDataset()
