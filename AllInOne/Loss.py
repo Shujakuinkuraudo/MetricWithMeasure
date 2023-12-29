@@ -18,18 +18,18 @@ class ContrastiveLoss(nn.Module):
         return torch.mean(
             equal_sample * distance_matrix - ~equal_sample * distance_matrix
         ) + torch.mean(
-            ~equal_sample * similarity_matrix - equal_sample * similarity_matrix
-        )
+            ~equal_sample * similarity_matrix - equal_sample * similarity_matrix 
+        ) 
 
 
 class MeasureLoss(nn.Module):
     def __init__(self):
         super().__init__()
-        self.loss = nn.MSELoss()
+        # self.loss = nn.MSELoss()
         self.loss = nn.BCELoss()
 
     def forward(self, digits, y: torch.Tensor):
         y = y.reshape(-1)
         equal_sample = torch.eq(y, y.unsqueeze(-1)).float()
         # print(digits, equal_sample)
-        return self.loss(digits * equal_sample, equal_sample) +0.1* self.loss(digits * (1-equal_sample),  equal_sample)
+        return self.loss(digits * equal_sample, equal_sample) +0.5*self.loss(digits * (1-equal_sample),  equal_sample)

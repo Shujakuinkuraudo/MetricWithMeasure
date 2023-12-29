@@ -24,27 +24,28 @@ class Train:
         self.loss_contrastive = ContrastiveLoss().to(self.device)
         self.loss_ae = nn.MSELoss().to(self.device)
         self.loss_measure = MeasureLoss().to(self.device)
+
         self.dataset = {
             True: {
+                # "Butterfly": ("Image1", ButterflyDataset()),
                 "Coron": ("Text", CoronavirusDataset()),
-                "Cifar100": ("Image", CIFAR100()),
-                "Bird": ("Audio", BirdClefDataset()),
-                "Butterfly": ("Image", ButterflyDataset()),
+                # "Cifar100": ("Image2", CIFAR100()),
+                # "Bird": ("Audio", BirdClefDataset()),
             },
             False: {
                 "Coron": ("Text", CoronavirusDataset(False)),
-                "Cifar100": ("Image", CIFAR100(False)),
-                "Bird": ("Audio", BirdClefDataset(False)),
-                "Butterfly": ("Image", ButterflyDataset(False)),
+                # "Cifar100": ("Image1", CIFAR100(False)),
+                # "Bird": ("Audio", BirdClefDataset(False)),
+                # "Butterfly": ("Image2", ButterflyDataset(False)),
             },
         }
         self.metric_model = MetricModel().to(self.device)
         self.measure_model = MeasureModel().to(self.device)
-        self.optim = None
+        self.optimizer = None
         self.epochs = 200
 
     def get_wandb(self):
-        run = wandb.init(project="deep-learning", save_code=True)
+        run = wandb.init(project="deep-learning", name="128batch", save_code=True)
         run.log_code("AllInOne/")
         return run
 
@@ -86,24 +87,29 @@ class Train:
                 loss_contrastive := self.loss_contrastive(pred.view(x.size(0), -1), y)
             )
             loss.backward()
-            self.optim.step()
-            self.optim.zero_grad()
+            self.optimizer.step()
+            self.optimizer.zero_grad()
             losses_ae.append(loss_ae.detach().item())
             losses_contrastive.append(loss_contrastive.detach().item())
         return sum(losses_contrastive) / len(losses_contrastive), sum(losses_ae) / len(
             losses_ae
         )
 
-    def metric_train_all(self):
-        self.optim = torch.optim.Adam(
+    def metric_train_all(self, pth):
+        # if pth:
+        #     self.metric_model.load_state_dict(torch.load(pth))
+        self.optimizer = torch.optim.SGD(
             [
                 {
                     "params": self.metric_model.FeatureExtraction.parameters(),
                     "lr": 1e-3,
                 },
-                {"params": self.metric_model.ae.parameters(), "lr": 1e-4},
-                {"params": self.loss_contrastive.parameters(), "lr": 1e-4},
+                {"params": self.metric_model.ae.parameters(), "lr": 1e-3},
             ]
+        )
+
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
+            self.optimizer, gamma=0.98
         )
 
         for epoch in tqdm(range(self.epochs)):
@@ -130,6 +136,7 @@ class Train:
             if epoch % 10 == 0:
                 self.save(epoch)
             # self.run.watch(self.model, log="all", log_freq=10)
+            self.scheduler.step()
 
     def log(self, string):
         with open(f"result/{self.time}/log.txt", "a") as f:
@@ -138,37 +145,52 @@ class Train:
     def measure_train_one_Loader(self, loader, type):
         self.measure_model.train()
         losses = []
+        ts = []
         for x, y in loader:
             x, y = x.to(self.device), y.to(self.device)
             _, feature = self.metric_model(x, type)
-            pred = self.measure_model(feature)
-            loss = self.loss_measure(pred, y)
+            # feature = nn.functional.tanh(feature)
+            # pred = self.measure_model(feature)
+            pred, classify = self.measure_model(feature)
+            # loss = (temp:=self.loss_measure(pred, y)) + 0.1*self.loss_contrastive(feature, y)
+            loss = (temp := self.loss_measure(pred, y).detach()) + 10 * (
+                t := nn.CrossEntropyLoss()(classify, y)
+            )
             loss.backward()
-            self.optim.step()
-            self.optim.zero_grad()
-            losses.append(loss.detach().item())
+            self.optimizer.step()
+            self.optimizer.zero_grad()
+
+            losses.append(temp.detach().cpu().item())
+            ts.append(t.detach().cpu().item())
+        print(sum(ts) / len(ts))
         return sum(losses) / len(losses)
 
     def measure_train_all(self, pth):
-        self.metric_model.load_state_dict(torch.load(pth))
+        # self.metric_model.load_state_dict(torch.load(pth))
         # self.metric_model.eval()
         self.measure_model.train()
-        self.optim = torch.optim.Adam(
+        self.optimizer = torch.optim.Adam(
             [
                 {"params": self.measure_model.parameters(), "lr": 1e-3},
-                {"params": self.metric_model.parameters(), "lr": 1e-2},
+                {"params": self.metric_model.parameters(), "lr": 1e-3},
             ]
         )
+        self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
+            self.optimizer, gamma=0.98
+        )
+
         for epoch in tqdm(range(self.epochs)):
             for dataset_name, (type, _) in list(self.dataset[1].items()):
                 type, loader = self.get_loader(dataset_name)
                 loss = self.measure_train_one_Loader(loader, type)
                 print(loss)
+                # type, loader = self.get_loader(dataset_name,False)
+                # loss = self.measure_train_one_Loader(loader, type)
                 self.log(
                     f"{epoch}\t dataset:{dataset_name}\t measure_loss:{loss} \t{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                 )
                 self.run.log({"epoch": epoch, f"{dataset_name}_measure_loss": loss})
-                if epoch % 10 == 0:
+                if epoch % 1 == 0:
                     loss, p, r = self.measure_test(dataset_name)
                     self.run.log({f"{dataset_name}_test_loss": loss, "p": p, "r": r})
                     print(loss, p, r)
@@ -177,6 +199,7 @@ class Train:
                     self.measure_model.state_dict(),
                     f"result/{self.time}/model/measure_{epoch}.pth",
                 )
+            self.scheduler.step()
 
     def measure_test(self, dataset_name):
         with torch.no_grad():
@@ -187,19 +210,23 @@ class Train:
                 x, y = x.to(self.device), y.to(self.device)
                 y = y.reshape(-1)
                 _, feature = self.metric_model(x, type)
-                pred = self.measure_model(feature)
+                # pred = self.measure_model(feature)
+                pred, _ = self.measure_model(feature)
                 loss = self.loss_measure(pred, y)
                 gd = torch.eq(y, y.unsqueeze(-1)).float()
-                pred = (pred >= 0.5).float()
+                pred = (pred >= 0.4).float()
                 TP += torch.sum(pred * gd)
                 TF += torch.sum((1 - pred) * (1 - gd))
                 FP += torch.sum(pred * (1 - gd))
                 FN += torch.sum((1 - pred) * gd)
-                losses.append(loss.item())
+                losses.append(loss.cpu().item())
             precision = TP / (TP + FP)
             recall = TP / (TP + FN)
-            print((TP + TF) / (TP + TF + FP + FN))
-            return sum(losses) / len(losses), precision, recall
+            return (
+                sum(losses) / len(losses),
+                precision.cpu().item(),
+                recall.cpu().item(),
+            )
 
     def eval(self, samples, ys, dataset_name):
         from sklearn.cluster import KMeans, SpectralClustering

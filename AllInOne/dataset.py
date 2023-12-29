@@ -22,7 +22,7 @@ class MulDataset:
 
 
 class CoronavirusDataset(Dataset, MulDataset):
-    def __init__(self, train=True, load=True):
+    def __init__(self, train=True, load=False):
         super().__init__()
         if not load:
             self.tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
@@ -180,7 +180,7 @@ class ButterflyDataset(Dataset, MulDataset):
         df["label"] = encoder.fit_transform(df["label"])
 
         df["train"] = 1
-        df.loc[[i for i in range(0, len(df), 5)], "train"] = 0
+        df.loc[[i for i in range(0, len(df), 2)], "train"] = 0
         return df
 
     def to_memory(self, idx):
@@ -227,7 +227,7 @@ class CIFAR100(Dataset):
             self.data = []
             for i in tqdm(range(len(self))):
                 self.data.append(self.to_memory(i))
-            torch.save(self.data, f"dataset/cifar100/{train}.pt")
+            # torch.save(self.data, f"dataset/cifar100/{train}.pt")
 
     def to_memory(self, idx):
         image, label = self.cifar100[idx * 10]
