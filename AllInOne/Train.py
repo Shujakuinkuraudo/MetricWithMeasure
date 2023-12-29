@@ -27,16 +27,16 @@ class Train:
 
         self.dataset = {
             True: {
-                # "Butterfly": ("Image1", ButterflyDataset()),
+                "Butterfly": ("Image", ButterflyDataset()),
                 "Coron": ("Text", CoronavirusDataset()),
-                # "Cifar100": ("Image2", CIFAR100()),
-                # "Bird": ("Audio", BirdClefDataset()),
+                "Cifar100": ("Image", CIFAR100()),
+                "Bird": ("Audio", BirdClefDataset()),
             },
             False: {
                 "Coron": ("Text", CoronavirusDataset(False)),
-                # "Cifar100": ("Image1", CIFAR100(False)),
-                # "Bird": ("Audio", BirdClefDataset(False)),
-                # "Butterfly": ("Image2", ButterflyDataset(False)),
+                "Cifar100": ("Image1", CIFAR100(False)),
+                "Bird": ("Audio", BirdClefDataset(False)),
+                "Butterfly": ("Image2", ButterflyDataset(False)),
             },
         }
         self.metric_model = MetricModel().to(self.device)
@@ -96,8 +96,8 @@ class Train:
         )
 
     def metric_train_all(self, pth):
-        # if pth:
-        #     self.metric_model.load_state_dict(torch.load(pth))
+        if pth:
+            self.metric_model.load_state_dict(torch.load(pth))
         self.optimizer = torch.optim.SGD(
             [
                 {
@@ -135,7 +135,6 @@ class Train:
                     )
             if epoch % 10 == 0:
                 self.save(epoch)
-            # self.run.watch(self.model, log="all", log_freq=10)
             self.scheduler.step()
 
     def log(self, string):
@@ -145,34 +144,26 @@ class Train:
     def measure_train_one_Loader(self, loader, type):
         self.measure_model.train()
         losses = []
-        ts = []
         for x, y in loader:
             x, y = x.to(self.device), y.to(self.device)
             _, feature = self.metric_model(x, type)
-            # feature = nn.functional.tanh(feature)
-            # pred = self.measure_model(feature)
-            pred, classify = self.measure_model(feature)
-            # loss = (temp:=self.loss_measure(pred, y)) + 0.1*self.loss_contrastive(feature, y)
-            loss = (temp := self.loss_measure(pred, y).detach()) + 10 * (
-                t := nn.CrossEntropyLoss()(classify, y)
-            )
+            pred = self.measure_model(feature)
+            loss = self.loss_measure(pred, y)
             loss.backward()
             self.optimizer.step()
             self.optimizer.zero_grad()
 
-            losses.append(temp.detach().cpu().item())
-            ts.append(t.detach().cpu().item())
-        print(sum(ts) / len(ts))
+            losses.append(loss.detach().cpu().item())
         return sum(losses) / len(losses)
 
-    def measure_train_all(self, pth):
-        # self.metric_model.load_state_dict(torch.load(pth))
-        # self.metric_model.eval()
+    def measure_train_all(self, pth=None):
+        if pth:
+            self.metric_model.load_state_dict(torch.load(pth))
         self.measure_model.train()
         self.optimizer = torch.optim.Adam(
             [
                 {"params": self.measure_model.parameters(), "lr": 1e-3},
-                {"params": self.metric_model.parameters(), "lr": 1e-3},
+                # {"params": self.metric_model.parameters(), "lr": 1e-3},
             ]
         )
         self.scheduler = torch.optim.lr_scheduler.ExponentialLR(
@@ -183,14 +174,11 @@ class Train:
             for dataset_name, (type, _) in list(self.dataset[1].items()):
                 type, loader = self.get_loader(dataset_name)
                 loss = self.measure_train_one_Loader(loader, type)
-                print(loss)
-                # type, loader = self.get_loader(dataset_name,False)
-                # loss = self.measure_train_one_Loader(loader, type)
                 self.log(
                     f"{epoch}\t dataset:{dataset_name}\t measure_loss:{loss} \t{datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
                 )
                 self.run.log({"epoch": epoch, f"{dataset_name}_measure_loss": loss})
-                if epoch % 1 == 0:
+                if epoch % 10 == 0:
                     loss, p, r = self.measure_test(dataset_name)
                     self.run.log({f"{dataset_name}_test_loss": loss, "p": p, "r": r})
                     print(loss, p, r)
@@ -210,16 +198,17 @@ class Train:
                 x, y = x.to(self.device), y.to(self.device)
                 y = y.reshape(-1)
                 _, feature = self.metric_model(x, type)
-                # pred = self.measure_model(feature)
-                pred, _ = self.measure_model(feature)
+                pred = self.measure_model(feature)
                 loss = self.loss_measure(pred, y)
+
                 gd = torch.eq(y, y.unsqueeze(-1)).float()
-                pred = (pred >= 0.4).float()
+                pred = (pred >= 0.5).float()
                 TP += torch.sum(pred * gd)
                 TF += torch.sum((1 - pred) * (1 - gd))
                 FP += torch.sum(pred * (1 - gd))
                 FN += torch.sum((1 - pred) * gd)
                 losses.append(loss.cpu().item())
+
             precision = TP / (TP + FP)
             recall = TP / (TP + FN)
             return (

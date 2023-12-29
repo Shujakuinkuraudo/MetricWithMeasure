@@ -1,3 +1,4 @@
+*.png
 venv/
 __pycache__/
 dataset/

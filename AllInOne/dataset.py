@@ -22,7 +22,7 @@ class MulDataset:
 
 
 class CoronavirusDataset(Dataset, MulDataset):
-    def __init__(self, train=True, load=False):
+    def __init__(self, train=True, load=True):
         super().__init__()
         if not load:
             self.tokenizer = RobertaTokenizer.from_pretrained("roberta-base")
@@ -227,17 +227,17 @@ class CIFAR100(Dataset):
             self.data = []
             for i in tqdm(range(len(self))):
                 self.data.append(self.to_memory(i))
-            # torch.save(self.data, f"dataset/cifar100/{train}.pt")
+            torch.save(self.data, f"dataset/cifar100/{train}.pt")
 
     def to_memory(self, idx):
-        image, label = self.cifar100[idx * 10]
+        image, label = self.cifar100[idx * 50]
         return image, label
 
     def __getitem__(self, idx):
         return self.data[idx]
 
     def __len__(self):
-        return len(self.cifar100) // 10
+        return len(self.cifar100) // 50
 
 
 if __name__ == "__main__":
